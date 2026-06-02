@@ -7,13 +7,16 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.IdentityCompat;
 import com.reazip.economycraft.util.IdentifierCompat;
 import com.reazip.economycraft.util.PermissionCompat;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.GameProfileArgument;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerPlayer;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -24,6 +27,7 @@ import com.reazip.economycraft.shop.ServerShopUi;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.orders.OrderRequest;
 import com.reazip.economycraft.orders.OrdersUi;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 
 import static net.minecraft.commands.Commands.argument;
@@ -656,7 +660,12 @@ public final class EconomyCommands {
                         .then(argument("price", LongArgumentType.longArg(1, EconomyManager.MAX))
                                 .executes(ctx -> listItem(ctx.getSource().getPlayerOrException(),
                                         LongArgumentType.getLong(ctx, "price"),
-                                        ctx.getSource()))))
+                                        ctx.getSource()))
+                        .then(literal("all")
+                                .executes(ctx -> listAll(
+                                        ctx.getSource().getPlayerOrException(),
+                                        LongArgumentType.getLong(ctx, "price"),
+                                        ctx.getSource())))))
                 .then(literal("search")
                         .then(argument("target", GameProfileArgument.gameProfile())
                                 .executes(ctx -> {
@@ -678,6 +687,52 @@ public final class EconomyCommands {
                                     }
                                     return getShopLimit(refs.iterator().next(), ctx.getSource());
                                 })));
+    }
+
+    private static int listAll(ServerPlayer player, long price, CommandSourceStack source) {
+        LOGGER.info("recursive");
+        ItemStack hand = player.getMainHandItem();
+        String handItem = hand.getItem().toString();
+        Inventory inv = player.getInventory();
+        ItemStack offhand = player.getOffhandItem();
+        if (player == null) return 0;
+        if (hand.isEmpty()) {
+            source.sendFailure(Component.literal("Вы ничего не держите в руке.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        for (int i = 0; i < 36; i++) {
+            ItemStack stack = inv.getItem(i);
+            if (stack.getItem().toString().equals(handItem)) {
+                LOGGER.info(stack.getItem().toString());
+                LOGGER.info(hand.getItem().toString());
+                ShopManager shop = EconomyCraft.getManager(source.getServer()).getShop();
+                EconomyManager manager = EconomyCraft.getManager(source.getServer());
+                int shopSellLimit = manager.getSellShopLimit(player.getUUID());
+                int shopLimit = manager.getShopLimit(player.getUUID());
+                if (shopSellLimit <= 0) {
+                    source.sendFailure(Component.literal("Вы не можете выставить больше предметов на продажу (лимит: " + shopLimit + ")"));
+                    break;
+                }
+                ShopListing listing = new ShopListing();
+                listing.seller = player.getUUID();
+                listing.price = price;
+
+                int count = Math.min(stack.getCount(), stack.getMaxStackSize());
+                listing.item = stack.copyWithCount(count);
+                stack.shrink(count);
+                shop.addListing(listing);
+                manager.setShopLimit(player.getUUID(), shopSellLimit - 1);
+
+                long tax = Math.round(price * EconomyConfig.get().taxRate);
+
+                Component msg = Component.literal("Предмет выставлен за " + EconomyCraft.formatMoney(price) +
+                                (tax > 0 ? " (покупатель платит " + EconomyCraft.formatMoney(price + tax) + ")" : ""))
+                        .withStyle(ChatFormatting.GREEN);
+
+                player.sendSystemMessage(msg);
+            }
+        }
+        return 1;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildShopLimit() {
