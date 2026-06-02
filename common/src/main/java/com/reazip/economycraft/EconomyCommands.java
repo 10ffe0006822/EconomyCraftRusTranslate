@@ -1,31 +1,35 @@
 package com.reazip.economycraft;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+import com.reazip.economycraft.orders.OrderManager;
+import com.reazip.economycraft.orders.OrderRequest;
+import com.reazip.economycraft.orders.OrdersUi;
+import com.reazip.economycraft.shop.ServerShopUi;
+import com.reazip.economycraft.shop.ShopListing;
+import com.reazip.economycraft.shop.ShopManager;
+import com.reazip.economycraft.shop.ShopUi;
+import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.IdentityCompat;
 import com.reazip.economycraft.util.IdentifierCompat;
 import com.reazip.economycraft.util.PermissionCompat;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.GameProfileArgument;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.*;
-
 import java.util.concurrent.CompletableFuture;
-import com.reazip.economycraft.shop.ShopManager;
-import com.reazip.economycraft.shop.ShopListing;
-import com.reazip.economycraft.shop.ShopUi;
-import com.reazip.economycraft.shop.ServerShopUi;
-import com.reazip.economycraft.orders.OrderManager;
-import com.reazip.economycraft.orders.OrderRequest;
-import com.reazip.economycraft.orders.OrdersUi;
-import net.minecraft.world.item.ItemStack;
 
 import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
@@ -35,6 +39,7 @@ import org.jetbrains.annotations.Nullable;
 
 public final class EconomyCommands {
     private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(buildRoot(
                 buildAddMoney(),
@@ -51,40 +56,21 @@ public final class EconomyCommands {
         dispatcher.register(buildOrders().requires(s -> EconomyConfig.get().standaloneCommands));
         dispatcher.register(buildDaily().requires(s -> EconomyConfig.get().standaloneCommands));
 
-        dispatcher.register(
-                buildAddMoney().requires(src ->
-                        PermissionCompat.gamemaster().test(src)
-                                && EconomyConfig.get().standaloneAdminCommands
-                )
-        );
-
-        dispatcher.register(
-                buildSetMoney().requires(src ->
-                        PermissionCompat.gamemaster().test(src)
-                                && EconomyConfig.get().standaloneAdminCommands
-                )
-        );
-
-        dispatcher.register(
-                buildRemoveMoney().requires(src ->
-                        PermissionCompat.gamemaster().test(src)
-                                && EconomyConfig.get().standaloneAdminCommands
-                )
-        );
-
-        dispatcher.register(
-                buildRemovePlayer().requires(src ->
-                        PermissionCompat.gamemaster().test(src)
-                                && EconomyConfig.get().standaloneAdminCommands
-                )
-        );
-
-        dispatcher.register(
-                buildToggleScoreboard().requires(src ->
-                        PermissionCompat.gamemaster().test(src)
-                                && EconomyConfig.get().standaloneAdminCommands
-                )
-        );
+        // Админ-команды (требуют прав и отдельного флага)
+        dispatcher.register(buildAddMoney().requires(src ->
+                PermissionCompat.gamemaster().test(src) && EconomyConfig.get().standaloneAdminCommands));
+        dispatcher.register(buildSetMoney().requires(src ->
+                PermissionCompat.gamemaster().test(src) && EconomyConfig.get().standaloneAdminCommands));
+        dispatcher.register(buildRemoveMoney().requires(src ->
+                PermissionCompat.gamemaster().test(src) && EconomyConfig.get().standaloneAdminCommands));
+        dispatcher.register(buildRemovePlayer().requires(src ->
+                PermissionCompat.gamemaster().test(src) && EconomyConfig.get().standaloneAdminCommands));
+        dispatcher.register(buildToggleScoreboard().requires(src ->
+                PermissionCompat.gamemaster().test(src) && EconomyConfig.get().standaloneAdminCommands));
+        dispatcher.register(buildShopLimit().requires(src ->
+                PermissionCompat.gamemaster().test(src) && EconomyConfig.get().standaloneAdminCommands));
+        dispatcher.register(buildShopBuyAll().requires(src ->
+                PermissionCompat.gamemaster().test(src) && EconomyConfig.get().standaloneAdminCommands));
 
         var serverShop = buildServerShop();
         serverShop.requires(
@@ -115,6 +101,8 @@ public final class EconomyCommands {
         root.then(removeMoney);
         root.then(removePlayer);
         root.then(toggleScoreboard);
+        root.then(buildShopLimit());
+        root.then(buildShopBuyAll());
 
         if (EconomyConfig.get().serverShopEnabled) {
             root.then(buildServerShop());
@@ -639,9 +627,184 @@ public final class EconomyCommands {
         return 1;
     }
 
-    // =====================================================================
-    // === Команды магазина игроков ========================================
-    // =====================================================================
+
+    private static LiteralArgumentBuilder<CommandSourceStack> buildShopLimit() {
+        return literal("shoplimit")
+                .requires(PermissionCompat.gamemaster())
+                .then(literal("set")
+                        .then(argument("player", GameProfileArgument.gameProfile())
+                                .then(argument("limit", IntegerArgumentType.integer(0))
+                                        .executes(ctx -> setShopLimit(
+                                                IdentityCompat.getArgAsPlayerRefs(ctx, "player"),
+                                                IntegerArgumentType.getInteger(ctx, "limit"),
+                                                ctx.getSource())))))
+                .then(literal("setdefault")
+                        .then(argument("limit", IntegerArgumentType.integer(0))
+                                .executes(ctx -> setDefaultShopLimit(
+                                        IntegerArgumentType.getInteger(ctx, "limit"),
+                                        ctx.getSource()))))
+                .then(literal("get")
+                        .executes(ctx -> getShopLimit(ctx.getSource(), null))
+                        .then(argument("player", GameProfileArgument.gameProfile())
+                                .executes(ctx -> {
+                                    var refs = IdentityCompat.getArgAsPlayerRefs(ctx, "player");
+                                    if (refs.size() != 1) {
+                                        ctx.getSource().sendFailure(Component.literal("Укажите ровно одного игрока").withStyle(ChatFormatting.RED));
+                                        return 0;
+                                    }
+                                    return getShopLimit(ctx.getSource(), refs.iterator().next());
+                                })))
+                .then(literal("reset")
+                        .then(argument("player", GameProfileArgument.gameProfile())
+                                .executes(ctx -> resetShopLimit(
+                                        IdentityCompat.getArgAsPlayerRefs(ctx, "player"),
+                                        ctx.getSource()))));
+    }
+
+    private static int setShopLimit(Collection<IdentityCompat.PlayerRef> players, int limit, CommandSourceStack source) {
+        if (players.isEmpty()) {
+            source.sendFailure(Component.literal("Нет подходящих целей").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        for (var p : players) {
+            eco.setShopLimit(p.id(), limit);
+        }
+        Component msg;
+        if (players.size() == 1) {
+            var p = players.iterator().next();
+            msg = Component.literal("Установлен лимит магазина для игрока " + p.name() + ": " + limit)
+                    .withStyle(ChatFormatting.GREEN);
+        } else {
+            msg = Component.literal("Установлен лимит магазина " + limit + " для " + players.size() + " игроков")
+                    .withStyle(ChatFormatting.GREEN);
+        }
+        source.sendSuccess(() -> msg, true);
+        return players.size();
+    }
+
+    private static int setDefaultShopLimit(int limit, CommandSourceStack source) {
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        eco.setDefaultShopLimit(limit);
+        Component msg = Component.literal("Глобальный лимит магазина изменён на " + limit)
+                .withStyle(ChatFormatting.GREEN);
+        source.sendSuccess(() -> msg, true);
+        return 1;
+    }
+
+    private static int getShopLimit(CommandSourceStack source, @Nullable IdentityCompat.PlayerRef player) {
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        if (player == null) {
+            int def = eco.getDefaultShopLimit();
+            source.sendSuccess(() -> Component.literal("Глобальный лимит магазина: " + def).withStyle(ChatFormatting.YELLOW), false);
+            return 1;
+        }
+        int limit = eco.getShopLimit(player.id());
+        source.sendSuccess(() -> Component.literal("Лимит магазина игрока " + player.name() + ": " + limit).withStyle(ChatFormatting.YELLOW), false);
+        return 1;
+    }
+
+    private static int resetShopLimit(Collection<IdentityCompat.PlayerRef> players, CommandSourceStack source) {
+        if (players.isEmpty()) {
+            source.sendFailure(Component.literal("Нет подходящих целей").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        for (var p : players) {
+            eco.resetShopLimit(p.id());
+        }
+        Component msg;
+        if (players.size() == 1) {
+            var p = players.iterator().next();
+            msg = Component.literal("Сброшен индивидуальный лимит магазина для игрока " + p.name() + " (теперь используется глобальный)")
+                    .withStyle(ChatFormatting.GREEN);
+        } else {
+            msg = Component.literal("Сброшен индивидуальный лимит магазина для " + players.size() + " игроков")
+                    .withStyle(ChatFormatting.GREEN);
+        }
+        source.sendSuccess(() -> msg, true);
+        return players.size();
+    }
+
+
+    private static LiteralArgumentBuilder<CommandSourceStack> buildShopBuyAll() {
+        return literal("shopbuyall")
+                .requires(PermissionCompat.gamemaster())
+                .executes(ctx -> shopBuyAll(ctx.getSource()));
+    }
+
+    private static int shopBuyAll(CommandSourceStack source) {
+        ServerPlayer admin;
+        try {
+            admin = source.getPlayerOrException();
+        } catch (Exception e) {
+            source.sendFailure(Component.literal("Только игрок может использовать эту команду.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        ShopManager shop = eco.getShop();
+
+        Collection<ShopListing> listings = shop.getListings();
+        if (listings.isEmpty()) {
+            source.sendFailure(Component.literal("В магазине нет товаров для скупки.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        long totalPrice = 0;
+        long totalTax = 0;
+        for (ShopListing l : listings) {
+            totalPrice += l.price;
+            totalTax += Math.round(l.price * EconomyConfig.get().taxRate);
+        }
+        long total = totalPrice + totalTax;
+        long balance = eco.getBalance(admin.getUUID(), true);
+        if (balance < total) {
+            source.sendFailure(Component.literal("Недостаточно средств для скупки всех товаров. Требуется: " + EconomyCraft.formatMoney(total))
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        if (!eco.removeMoney(admin.getUUID(), total)) {
+            source.sendFailure(Component.literal("Не удалось списать средства.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        boolean hadStorage = false;
+        int soldCount = 0;
+        for (ShopListing l : new ArrayList<>(listings)) {
+            eco.addMoney(l.seller, l.price);
+            shop.removeListing(l.id);
+            shop.notifySellerSale(l, admin);
+            soldCount++;
+
+            ItemStack stack = l.item.copy();
+            if (!admin.getInventory().add(stack)) {
+                shop.addDelivery(admin.getUUID(), stack);
+                hadStorage = true;
+            }
+        }
+
+        Component msg = Component.literal("Скуплено " + soldCount + " товаров за " + EconomyCraft.formatMoney(total))
+                .withStyle(ChatFormatting.GREEN);
+        admin.sendSystemMessage(msg);
+
+        if (hadStorage) {
+            ClickEvent ev = ChatCompat.runCommandEvent("/eco orders claim");
+            if (ev != null) {
+                Component storageMsg = Component.literal("Часть предметов сохранена в доставках: ")
+                        .withStyle(ChatFormatting.YELLOW)
+                        .append(Component.literal("[Забрать]")
+                                .withStyle(s -> s.withUnderlined(true).withColor(ChatFormatting.GREEN).withClickEvent(ev)));
+                admin.sendSystemMessage(storageMsg);
+            } else {
+                ChatCompat.sendRunCommandTellraw(admin, "Часть предметов сохранена: ", "[Забрать]", "/eco orders claim");
+            }
+        }
+
+        return soldCount;
+    }
+
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildShop() {
         return literal("shop")
@@ -650,7 +813,12 @@ public final class EconomyCommands {
                         .then(argument("price", LongArgumentType.longArg(1, EconomyManager.MAX))
                                 .executes(ctx -> listItem(ctx.getSource().getPlayerOrException(),
                                         LongArgumentType.getLong(ctx, "price"),
-                                        ctx.getSource()))))
+                                        ctx.getSource()))
+                                .then(literal("all")
+                                        .executes(ctx -> listAll(
+                                                ctx.getSource().getPlayerOrException(),
+                                                LongArgumentType.getLong(ctx, "price"),
+                                                ctx.getSource())))))
                 .then(literal("search")
                         .then(argument("target", GameProfileArgument.gameProfile())
                                 .executes(ctx -> {
@@ -692,6 +860,8 @@ public final class EconomyCommands {
         }
 
         ShopManager shop = EconomyCraft.getManager(source.getServer()).getShop();
+        EconomyManager manager = EconomyCraft.getManager(source.getServer());
+
         ShopListing listing = new ShopListing();
         listing.seller = player.getUUID();
         listing.price = price;
@@ -700,17 +870,131 @@ public final class EconomyCommands {
         int count = Math.min(hand.getCount(), hand.getMaxStackSize());
         listing.item = hand.copyWithCount(count);
         hand.shrink(count);
-        shop.addListing(listing);
+
+        if (!shop.addListing(listing)) {
+            int limit = manager.getShopLimit(player.getUUID());
+            source.sendFailure(Component.literal("Вы не можете выставить больше предметов на продажу (лимит: " + limit + ")")
+                    .withStyle(ChatFormatting.RED));
+            hand.grow(count);
+            return 0;
+        }
 
         long tax = Math.round(price * EconomyConfig.get().taxRate);
-
         Component msg = Component.literal("Предмет выставлен за " + EconomyCraft.formatMoney(price) +
                         (tax > 0 ? " (покупатель платит " + EconomyCraft.formatMoney(price + tax) + ")" : ""))
                 .withStyle(ChatFormatting.GREEN);
-
         player.sendSystemMessage(msg);
-
         return 1;
+    }
+
+    private static int listAll(ServerPlayer player, long price, CommandSourceStack source) {
+        ItemStack hand = player.getMainHandItem();
+        if (hand.isEmpty()) {
+            source.sendFailure(Component.literal("Держите предмет в руке, чтобы выставить на продажу").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        EconomyManager manager = EconomyCraft.getManager(source.getServer());
+        ShopManager shop = manager.getShop();
+        PriceRegistry prices = manager.getPrices();
+
+        if (prices.isSellBlockedByDamage(hand)) {
+            source.sendFailure(Component.literal("Повреждённые предметы нельзя выставлять на продажу.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        if (prices.isSellBlockedByContents(hand)) {
+            source.sendFailure(Component.literal("Предметы с содержимым нельзя выставлять на продажу.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        ItemStack template = hand.copy();
+        int lotSize = hand.getCount();
+        if (lotSize <= 0) {
+            source.sendFailure(Component.literal("Неверный размер лота.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        Inventory inv = player.getInventory();
+        int total = 0;
+        for (int i = 0; i < 36; i++) {
+            ItemStack stack = inv.getItem(i);
+            if (ItemStack.isSameItemSameComponents(template, stack)) {
+                total += stack.getCount();
+            }
+        }
+        ItemStack offhand = player.getOffhandItem();
+        if (ItemStack.isSameItemSameComponents(template, offhand)) {
+            total += offhand.getCount();
+        }
+
+        if (total < lotSize) {
+            source.sendFailure(Component.literal("Недостаточно предметов для выставления хотя бы одного лота. Требуется: " + lotSize + ", доступно: " + total)
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        int lots = total / lotSize;
+        int toRemove = lots * lotSize;
+        int remaining = total - toRemove;
+
+        int currentListings = shop.countListingsBySeller(player.getUUID());
+        int limit = manager.getShopLimit(player.getUUID());
+        if (currentListings + lots > limit) {
+            source.sendFailure(Component.literal("Вы не можете выставить " + lots + " лотов, так как превышен лимит (" + limit + "). Сейчас у вас " + currentListings + " объявлений.")
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        int toDelete = toRemove;
+        for (int i = 0; i < 36 && toDelete > 0; i++) {
+            ItemStack stack = inv.getItem(i);
+            if (ItemStack.isSameItemSameComponents(template, stack)) {
+                int take = Math.min(stack.getCount(), toDelete);
+                stack.shrink(take);
+                if (stack.isEmpty()) {
+                    inv.setItem(i, ItemStack.EMPTY);
+                }
+                toDelete -= take;
+            }
+        }
+        if (toDelete > 0) {
+            ItemStack stack = player.getOffhandItem();
+            if (ItemStack.isSameItemSameComponents(template, stack)) {
+                int take = Math.min(stack.getCount(), toDelete);
+                stack.shrink(take);
+                if (stack.isEmpty()) {
+                    player.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
+                }
+                toDelete -= take;
+            }
+        }
+
+        if (toDelete > 0) {
+            source.sendFailure(Component.literal("Ошибка при удалении предметов из инвентаря. Попробуйте ещё раз.")
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        for (int i = 0; i < lots; i++) {
+            ShopListing listing = new ShopListing();
+            listing.seller = player.getUUID();
+            listing.price = price;
+            listing.item = template.copyWithCount(lotSize);
+            if (!shop.addListing(listing)) {
+                source.sendFailure(Component.literal("Не удалось создать объявление (лимит превышен).")
+                        .withStyle(ChatFormatting.RED));
+                return 0;
+            }
+        }
+
+        long tax = Math.round(price * EconomyConfig.get().taxRate);
+        Component msg = Component.literal("Выставлено " + lots + " лот" + (lots > 1 ? "ов" : "") +
+                        " по " + EconomyCraft.formatMoney(price) + " за лот" +
+                        (tax > 0 ? " (покупатель платит " + EconomyCraft.formatMoney(price + tax) + ")" : "") +
+                        ". Продано предметов: " + toRemove + ", осталось: " + remaining)
+                .withStyle(ChatFormatting.GREEN);
+        player.sendSystemMessage(msg);
+        return lots;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildServerShop() {
@@ -743,9 +1027,6 @@ public final class EconomyCommands {
         }
     }
 
-    // =====================================================================
-    // === Команды заказов =================================================
-    // =====================================================================
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildOrders() {
         return literal("orders")
@@ -795,7 +1076,7 @@ public final class EconomyCommands {
         long tax = Math.round(price * EconomyConfig.get().taxRate);
 
         Component msg = Component.literal("Создан запрос" +
-                (tax > 0 ? " (исполнитель получит " + EconomyCraft.formatMoney(price - tax) + ")" : ""))
+                        (tax > 0 ? " (исполнитель получит " + EconomyCraft.formatMoney(price - tax) + ")" : ""))
                 .withStyle(ChatFormatting.GREEN);
         player.sendSystemMessage(msg);
 
@@ -807,9 +1088,6 @@ public final class EconomyCommands {
         return 1;
     }
 
-    // =====================================================================
-    // === Ежедневная награда ==============================================
-    // =====================================================================
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildDaily() {
         return literal("daily")
@@ -827,10 +1105,6 @@ public final class EconomyCommands {
         }
         return 1;
     }
-
-    // =====================================================================
-    // === Вспомогательные методы ==========================================
-    // =====================================================================
 
     private static String getDisplayName(EconomyManager manager, UUID id) {
         var server = manager.getServer();

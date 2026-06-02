@@ -6,6 +6,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mojang.serialization.JsonOps;
 import com.reazip.economycraft.EconomyCraft;
+import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.util.IdentityCompat;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.RegistryOps;
@@ -22,15 +23,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
-/** Управляет объявлениями в магазине и доставками. */
 public class ShopManager {
     private static final Gson GSON = new Gson();
     private final MinecraftServer server;
     private final Path file;
-    private final Map<Integer, ShopListing> listings = new HashMap<>(); // Карта объявлений
-    private final Map<UUID, List<ItemStack>> deliveries = new HashMap<>(); // Карта доставок
+    private final Map<Integer, ShopListing> listings = new HashMap<>();
+    private final Map<UUID, List<ItemStack>> deliveries = new HashMap<>();
     private int nextId = 1;
-    private final List<Runnable> listeners = new ArrayList<>(); // Слушатели изменений
+    private final List<Runnable> listeners = new ArrayList<>();
     private List<ShopListing> values = new ArrayList<>();
     private ArrayList list;
 
@@ -40,16 +40,17 @@ public class ShopManager {
         Path dataDir = dir.resolve("data");
         try { Files.createDirectories(dataDir); } catch (IOException ignored) {}
         this.file = dataDir.resolve("shop.json");
-        load(); // Загружаем данные
+        load();
     }
 
-    /** Возвращает все объявления. */
     public Collection<ShopListing> getListings() {
         return listings.values();
     }
+
     public Collection<ShopListing> getPlayerListings(ServerPlayer viewer, String target) {
         values = new ArrayList<>(listings.values());
         list = new ArrayList<>();
+        EconomyManager eco = EconomyCraft.getManager(viewer.level().getServer());
         for (int i = 0; i < values.size(); i++) {
             ShopListing l = values.get(i);
             String sellerName;
@@ -57,27 +58,44 @@ public class ShopManager {
             if (sellerPlayer != null) {
                 sellerName = IdentityCompat.of(sellerPlayer).name();
             } else {
-                sellerName = EconomyCraft.getManager(viewer.level().getServer()).getBestName(l.seller);
+                sellerName = eco.getBestName(l.seller);
             }
             if (sellerName != null && sellerName.equals(target)) {list.add(l);}
         }
         return list;
     }
 
-    /** Возвращает объявление по ID. */
     public ShopListing getListing(int id) {
         return listings.get(id);
     }
 
-    /** Добавляет новое объявление. */
-    public void addListing(ShopListing listing) {
+
+    public boolean addListing(ShopListing listing) {
+        if (listing == null || listing.seller == null) return false;
+        EconomyManager eco = EconomyCraft.getManager(server);
+        int limit = eco.getShopLimit(listing.seller);
+        int currentCount = countListingsBySeller(listing.seller);
+        if (currentCount >= limit) {
+            return false;
+        }
         listing.id = nextId++;
         listings.put(listing.id, listing);
-        notifyListeners(); // Уведомляем слушателей
-        save(); // Сохраняем
+        notifyListeners();
+        save();
+        return true;
     }
 
-    /** Удаляет объявление по ID. */
+
+    public int countListingsBySeller(UUID sellerId) {
+        int count = 0;
+        for (ShopListing l : listings.values()) {
+            if (l.seller != null && l.seller.equals(sellerId)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     public ShopListing removeListing(int id) {
         ShopListing l = listings.remove(id);
         if (l != null) {
@@ -87,10 +105,8 @@ public class ShopManager {
         return l;
     }
 
-    /** Уведомляет продавца о продаже его предмета. */
     public void notifySellerSale(ShopListing listing, ServerPlayer buyer) {
         if (listing == null || buyer == null) return;
-
         UUID sellerId = listing.seller;
         if (sellerId == null) return;
 
@@ -115,23 +131,19 @@ public class ShopManager {
         seller.sendSystemMessage(msg);
     }
 
-    /** Возвращает сервер. */
     public MinecraftServer server() {
         return server;
     }
 
-    /** Добавляет доставку для игрока. */
     public void addDelivery(UUID player, ItemStack stack) {
         deliveries.computeIfAbsent(player, k -> new ArrayList<>()).add(stack);
         save();
     }
 
-    /** Возвращает доставки для игрока без их удаления. */
     public List<ItemStack> getDeliveries(UUID player) {
         return deliveries.computeIfAbsent(player, k -> new ArrayList<>());
     }
 
-    /** Удаляет конкретную доставку. */
     public void removeDelivery(UUID player, ItemStack stack) {
         List<ItemStack> list = deliveries.get(player);
         if (list != null) {
@@ -141,20 +153,17 @@ public class ShopManager {
         }
     }
 
-    /** Забирает все доставки игрока. */
     public List<ItemStack> claimDeliveries(UUID player) {
         List<ItemStack> list = deliveries.remove(player);
         if (list != null) save();
         return list;
     }
 
-    /** Проверяет, есть ли у игрока доставки. */
     public boolean hasDeliveries(UUID player) {
         List<ItemStack> list = deliveries.get(player);
         return list != null && !list.isEmpty();
     }
 
-    /** Загружает данные из файла. */
     public void load() {
         if (Files.exists(file)) {
             try {
@@ -180,7 +189,6 @@ public class ShopManager {
                             IdentifierCompat.Id rl = IdentifierCompat.tryParse(itemId);
                             if (rl != null) {
                                 java.util.Optional<Item> opt = IdentifierCompat.registryGetOptional(BuiltInRegistries.ITEM, rl);
-
                                 if (opt.isPresent()) {
                                     Item item = opt.get();
                                     stack = new ItemStack(item, count);
@@ -195,7 +203,6 @@ public class ShopManager {
         }
     }
 
-    /** Сохраняет данные в файл. */
     public void save() {
         JsonObject root = new JsonObject();
         root.addProperty("nextId", nextId);
@@ -231,7 +238,6 @@ public class ShopManager {
         listeners.remove(run);
     }
 
-    /** Уведомляет всех слушателей об изменениях. */
     private void notifyListeners() {
         for (Runnable r : new ArrayList<>(listeners)) {
             r.run();
