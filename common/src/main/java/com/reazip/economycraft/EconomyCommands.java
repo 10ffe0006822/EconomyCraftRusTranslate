@@ -1,6 +1,7 @@
 package com.reazip.economycraft;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -14,9 +15,7 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.arguments.GameProfileArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
-
 import java.util.*;
-
 import java.util.concurrent.CompletableFuture;
 import com.reazip.economycraft.shop.ShopManager;
 import com.reazip.economycraft.shop.ShopListing;
@@ -85,6 +84,12 @@ public final class EconomyCommands {
                                 && EconomyConfig.get().standaloneAdminCommands
                 )
         );
+        dispatcher.register(
+                buildShopLimit().requires(src ->
+                        PermissionCompat.gamemaster().test(src)
+                            && EconomyConfig.get().standaloneAdminCommands
+                )
+        );
 
         var serverShop = buildServerShop();
         serverShop.requires(
@@ -115,6 +120,7 @@ public final class EconomyCommands {
         root.then(removeMoney);
         root.then(removePlayer);
         root.then(toggleScoreboard);
+        root.then(buildShopLimit());
 
         if (EconomyConfig.get().serverShopEnabled) {
             root.then(buildServerShop());
@@ -660,7 +666,93 @@ public final class EconomyCommands {
                                         return 0;
                                     }
                                     return openPlayerShop(ctx.getSource().getPlayerOrException(), ctx.getSource(), refs.iterator().next());
+                                })))
+                .then(literal("limit")
+                        .executes(ctx -> getServerShopLimit(ctx.getSource().getPlayerOrException(), ctx.getSource()))
+                        .then(argument("target", GameProfileArgument.gameProfile())
+                                .executes(ctx -> {
+                                    var refs = IdentityCompat.getArgAsPlayerRefs(ctx, "target");
+                                    if (refs.size() != 1) {
+                                        ctx.getSource().sendFailure(Component.literal("Укажите ровно одного игрока").withStyle(ChatFormatting.RED));
+                                        return 0;
+                                    }
+                                    return getShopLimit(refs.iterator().next(), ctx.getSource());
                                 })));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> buildShopLimit() {
+        return literal("shoplimit")
+                .requires(PermissionCompat.gamemaster())
+                .then(literal("add")
+                        .then(argument("player", GameProfileArgument.gameProfile())
+                                .then(argument("limit", IntegerArgumentType.integer(0))
+                                        .executes(ctx ->
+                                        {
+                                            var refs = IdentityCompat.getArgAsPlayerRefs(ctx, "player");
+                                            if (refs.size() != 1) {
+                                                ctx.getSource().sendFailure(Component.literal("Укажите ровно одного игрока").withStyle(ChatFormatting.RED));
+                                                return 0;
+                                            }
+                                            return addShopLimit(
+                                                    refs.iterator().next(),
+                                                    IntegerArgumentType.getInteger(ctx, "integer"),
+                                                    ctx.getSource());
+                                        }))))
+                .then(literal("get")
+                        .then(argument("player", GameProfileArgument.gameProfile())
+                                .executes(ctx -> {
+                                    var refs = IdentityCompat.getArgAsPlayerRefs(ctx, "player");
+                                    if (refs.size() != 1) {
+                                        ctx.getSource().sendFailure(Component.literal("Укажите ровно одного игрока").withStyle(ChatFormatting.RED));
+                                        return 0;
+                                    }
+                                    return getShopLimit(refs.iterator().next(), ctx.getSource());
+                                })))
+                .then(literal("remove")
+                        .then(argument("player", GameProfileArgument.gameProfile())
+                                .then(argument("integer", IntegerArgumentType.integer(0))
+                                        .executes(ctx ->
+                                                {
+                                                    var refs = IdentityCompat.getArgAsPlayerRefs(ctx, "player");
+                                                    if (refs.size() != 1) {
+                                                        ctx.getSource().sendFailure(Component.literal("Укажите ровно одного игрока").withStyle(ChatFormatting.RED));
+                                                        return 0;
+                                                    }
+                                                    return removeShopLimit(
+                                                            refs.iterator().next(),
+                                                            IntegerArgumentType.getInteger(ctx, "integer"),
+                                                            ctx.getSource());
+                                                }))));
+    }
+
+    private static int addShopLimit(IdentityCompat.PlayerRef player, int number, CommandSourceStack source) {
+        EconomyManager manager = EconomyCraft.getManager(source.getServer());
+        int shoplimit = manager.getShopLimit(player.id());
+        manager.setShopLimit(player.id(), shoplimit + number);
+        source.sendSuccess(() -> Component.literal("Уменьшен лимит магазина для игрока " + player.name() + ": " + shoplimit).withStyle(ChatFormatting.GREEN), false);
+        return 1;
+    }
+
+    private static int removeShopLimit(IdentityCompat.PlayerRef player, int number, CommandSourceStack source) {
+        EconomyManager manager = EconomyCraft.getManager(source.getServer());
+        int shoplimit = manager.getShopLimit(player.id());
+        manager.setShopLimit(player.id(), shoplimit - number);
+        source.sendSuccess(() -> Component.literal("Уменьшен лимит магазина для игрока " + player.name() + ": " + shoplimit).withStyle(ChatFormatting.GREEN), false);
+        return 1;
+    }
+
+    private static int getShopLimit(IdentityCompat.PlayerRef player, CommandSourceStack source) {
+        EconomyManager manager = EconomyCraft.getManager(source.getServer());
+        int shoplimit = manager.getSellShopLimit(player.id());
+        source.sendSuccess(() -> Component.literal("Лимит лотов магазина для игрока " + player.name() + ": " + shoplimit).withStyle(ChatFormatting.GREEN), false);
+        return 1;
+    }
+
+    private static int getServerShopLimit(ServerPlayer player, CommandSourceStack source) {
+        EconomyManager manager = EconomyCraft.getManager(source.getServer());
+        int shoplimit = manager.getSellShopLimit(player.getUUID());
+        source.sendSuccess(() -> Component.literal("Лимит лотов магазина для игрока " + player.getName().getString() + ": " + shoplimit).withStyle(ChatFormatting.GREEN), false);
+        return 1;
     }
 
     private static int openShop(ServerPlayer player, CommandSourceStack source) {
@@ -692,6 +784,13 @@ public final class EconomyCommands {
         }
 
         ShopManager shop = EconomyCraft.getManager(source.getServer()).getShop();
+        EconomyManager manager = EconomyCraft.getManager(source.getServer());
+        int shopSellLimit = manager.getSellShopLimit(player.getUUID());
+        int shopLimit = manager.getShopLimit(player.getUUID());
+        if (shopSellLimit <= 0) {
+            source.sendFailure(Component.literal("Вы не можете выставить больше предметов на продажу (лимит: " + shopLimit + ")"));
+            return 0;
+        }
         ShopListing listing = new ShopListing();
         listing.seller = player.getUUID();
         listing.price = price;
@@ -701,6 +800,7 @@ public final class EconomyCommands {
         listing.item = hand.copyWithCount(count);
         hand.shrink(count);
         shop.addListing(listing);
+        manager.setShopLimit(player.getUUID(), shopSellLimit - 1);
 
         long tax = Math.round(price * EconomyConfig.get().taxRate);
 

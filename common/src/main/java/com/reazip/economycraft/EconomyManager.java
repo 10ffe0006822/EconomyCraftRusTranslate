@@ -23,15 +23,18 @@ public class EconomyManager {
     private static final Gson GSON = new Gson();
     private static final Type TYPE = new TypeToken<Map<UUID, Long>>(){}.getType();
     private static final Type DAILY_SELL_TYPE = new TypeToken<Map<UUID, DailySellData>>(){}.getType();
+    private static final Type SHOP_LIMITS_TYPE = new TypeToken<Map<UUID, Integer>>(){}.getType();
 
     private final MinecraftServer server;
     private final Path file;
     private final Path dailyFile;
     private final Path dailySellFile;
+    private final Path shopLimitsFile;
 
     private final Map<UUID, Long> balances = new HashMap<>();
     private final Map<UUID, Long> lastDaily = new HashMap<>();
     private final Map<UUID, DailySellData> dailySells = new HashMap<>();
+    private final Map<UUID, Integer> shopLimits = new HashMap<>();
     private Map<UUID, String> diskUserCache = null;
     private final PriceRegistry prices;
 
@@ -51,10 +54,12 @@ public class EconomyManager {
         this.file = dataDir.resolve("balances.json");
         this.dailyFile = dataDir.resolve("daily.json");
         this.dailySellFile = dataDir.resolve("daily_sells.json");
+        this.shopLimitsFile = dataDir.resolve("shop_limits.json");
 
         load();
         loadDaily();
         loadDailySells();
+        loadShopLimits();
 
         this.shop = new com.reazip.economycraft.shop.ShopManager(server);
         this.orders = new com.reazip.economycraft.orders.OrderManager(server);
@@ -65,6 +70,50 @@ public class EconomyManager {
 
     public MinecraftServer getServer() {
         return server;
+    }
+
+    // =====================================================================
+    // === Работа c лимитами магазина ======================================
+    // =====================================================================\
+
+    private void loadShopLimits() {
+        if (Files.exists(shopLimitsFile)) {
+            try {
+                String json = Files.readString(shopLimitsFile);
+                Map<UUID, Integer> map = GSON.fromJson(json, SHOP_LIMITS_TYPE);
+                if (map != null) shopLimits.putAll(map);
+            } catch (IOException ignored) {}
+        }
+    }
+
+    public void saveShopLimits() {
+        try {
+            String json = GSON.toJson(shopLimits, SHOP_LIMITS_TYPE);
+            Files.writeString(shopLimitsFile, json);
+        } catch (IOException ignored) {}
+    }
+
+    public int getShopLimit(UUID playerId) {
+        return shop.getIntPlayerListings(playerId) + shopLimits.getOrDefault(playerId, EconomyConfig.get().defaultShopLimit);
+    }
+
+    public int getSellShopLimit(UUID playerId) {
+        return shopLimits.getOrDefault(playerId, EconomyConfig.get().defaultShopLimit);
+    }
+
+    public void setShopLimit(UUID playerId, int limit) {
+        if (limit < 0) limit = 0;
+        shopLimits.put(playerId, limit);
+        saveShopLimits();
+    }
+
+    public int getDefaultShopLimit() {
+        return EconomyConfig.get().defaultShopLimit;
+    }
+
+    public void resetShopLimit(UUID playerId) {
+        shopLimits.remove(playerId);
+        saveShopLimits();
     }
 
     // =====================================================================
@@ -355,8 +404,10 @@ public class EconomyManager {
 
     public void removePlayer(UUID id) {
         balances.remove(id);
+        shopLimits.remove(id);
         updateLeaderboard();
         save();
+        saveShopLimits();
     }
 
     public boolean claimDaily(UUID player) {

@@ -33,6 +33,8 @@ public class EconomyConfig {
     public boolean scoreboardEnabled;       // Включить скорборд
     @SerializedName("server_shop_enabled")
     public boolean serverShopEnabled = true; // Включить серверный магазин
+    @SerializedName("default_shop_limit")
+    public int defaultShopLimit = 15; // Лимит на количество лотов в магазине
 
     private static EconomyConfig INSTANCE = new EconomyConfig();
     private static Path file;

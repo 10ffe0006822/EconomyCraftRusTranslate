@@ -22,6 +22,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemLore;
 import com.mojang.authlib.GameProfile;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -48,7 +49,7 @@ public final class ShopUi {
             @Override
             public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) {
                 try {
-                    return new ShopMenu(id, inv, shop, player);
+                    return new ShopMenu(id, inv, shop, player, null);
                 } catch (Exception e) {
                     throw e;
                 }
@@ -68,7 +69,7 @@ public final class ShopUi {
             @Override
             public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) {
                 try {
-                    return new ShopPlayerMenu(id, inv, shop, player, target);
+                    return new ShopMenu(id, inv, shop, player, target);
                 } catch (Exception e) {
                     throw e;
                 }
@@ -155,127 +156,10 @@ public final class ShopUi {
         private final SimpleContainer container = new SimpleContainer(54);
         private int page;
         private final int navRowStart = 45;
-        private final Runnable listener = this::updatePage;
-
-        ShopMenu(int id, Inventory inv, ShopManager shop, ServerPlayer viewer) {
-            super(MenuType.GENERIC_9x6, id);
-            this.shop = shop;
-            this.viewer = viewer;
-            updatePage();
-            shop.addListener(listener);
-            for (int i = 0; i < 54; i++) {
-                int r = i / 9;
-                int c = i % 9;
-                this.addSlot(new Slot(container, i, 8 + c * 18, 18 + r * 18) {
-                    @Override public boolean mayPickup(Player player) { return false; }
-                    @Override public boolean mayPlace(ItemStack stack) { return false; }
-                });
-            }
-            int y = 18 + 6 * 18 + 14;
-            for (int r = 0; r < 3; r++) {
-                for (int c = 0; c < 9; c++) {
-                    this.addSlot(new Slot(inv, c + r * 9 + 9, 8 + c * 18, y + r * 18));
-                }
-            }
-            for (int c = 0; c < 9; c++) {
-                this.addSlot(new Slot(inv, c, 8 + c * 18, y + 58));
-            }
-        }
-
-        private void updatePage() {
-            listings = new ArrayList<>(shop.getListings());
-            container.clearContent();
-            int start = page * 45;
-            int totalPages = (int) Math.ceil(listings.size() / 45.0);
-
-            for (int i = 0; i < 45; i++) {
-                int idx = start + i;
-                if (idx >= listings.size()) break;
-
-                ShopListing l = listings.get(idx);
-                ItemStack display = l.item.copy();
-
-                String sellerName;
-                ServerPlayer sellerPlayer = viewer.level().getServer().getPlayerList().getPlayer(l.seller);
-                if (sellerPlayer != null) {
-                    sellerName = IdentityCompat.of(sellerPlayer).name();
-                } else {
-                    sellerName = EconomyCraft.getManager(viewer.level().getServer()).getBestName(l.seller);
-                }
-
-                long tax = Math.round(l.price * EconomyConfig.get().taxRate);
-                display.set(net.minecraft.core.component.DataComponents.LORE, new net.minecraft.world.item.component.ItemLore(List.of(
-                        createPriceLore(l.price, tax),
-                        labeledValue("Продавец", sellerName, LABEL_SECONDARY_COLOR))));
-                container.setItem(i, display);
-            }
-
-            if (page > 0) {
-                ItemStack prev = new ItemStack(Items.ARROW);
-                prev.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME, Component.literal("Предыдущая страница").withStyle(s -> s.withItalic(false)));
-                container.setItem(navRowStart + 3, prev);
-            }
-
-            if (start + 45 < listings.size()) {
-                ItemStack next = new ItemStack(Items.ARROW);
-                next.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME, Component.literal("Следующая страница").withStyle(s -> s.withItalic(false)));
-                container.setItem(navRowStart + 5, next);
-            }
-
-            ItemStack balance = createBalanceItem(viewer);
-            container.setItem(navRowStart, balance);
-
-            ItemStack paper = new ItemStack(Items.PAPER);
-            paper.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME, Component.literal("Страница " + (page + 1) + "/" + Math.max(1, totalPages)).withStyle(s -> s.withItalic(false)));
-            container.setItem(navRowStart + 4, paper);
-        }
-
-        @Override
-        public void clicked(int slot, int dragType, ClickType type, Player player) {
-            if (type == ClickType.PICKUP) {
-                if (slot < 45) {
-                    int index = page * 45 + slot;
-                    if (index < listings.size()) {
-                        ShopListing listing = listings.get(index);
-                        if (listing.seller.equals(player.getUUID())) {
-                            openRemove((ServerPlayer) player, shop, listing);
-                        } else {
-                            ShopUi.openConfirm((ServerPlayer) player, shop, listing);
-                        }
-                        return;
-                    }
-                }
-                if (slot == navRowStart + 3 && page > 0) { page--; updatePage(); return; }
-                if (slot == navRowStart + 5 && (page + 1) * 45 < listings.size()) { page++; updatePage(); return; }
-            }
-            super.clicked(slot, dragType, type, player);
-        }
-
-        @Override
-        public boolean stillValid(Player player) { return true; }
-
-        @Override
-        public void removed(Player player) {
-            super.removed(player);
-            shop.removeListener(listener);
-        }
-
-        @Override
-        public ItemStack quickMoveStack(Player player, int index) { return ItemStack.EMPTY; }
-    }
-
-    private static class ShopPlayerMenu extends AbstractContainerMenu {
-        private final ShopManager shop;
-        private final ServerPlayer viewer;
-        private List<ShopListing> listings = new ArrayList<>();
-        private final SimpleContainer container = new SimpleContainer(54);
-        private int page;
-        private final int navRowStart = 45;
-        private final Runnable listener = this::updatePage;
         private String target;
-        private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
+        private final Runnable listener = this::updatePage;
 
-        ShopPlayerMenu(int id, Inventory inv, ShopManager shop, ServerPlayer viewer, String target) {
+        ShopMenu(int id, Inventory inv, ShopManager shop, ServerPlayer viewer, @Nullable String target) {
             super(MenuType.GENERIC_9x6, id);
             this.shop = shop;
             this.viewer = viewer;
@@ -302,7 +186,11 @@ public final class ShopUi {
         }
 
         private void updatePage() {
-            listings = new ArrayList<>(shop.getPlayerListings(viewer, target));
+            if (target != null) {
+                listings = new ArrayList<>(shop.getPlayerListings(viewer, target));
+            } else {
+                listings = new ArrayList<>(shop.getListings());
+            }
             container.clearContent();
             int start = page * 45;
             int totalPages = (int) Math.ceil(listings.size() / 45.0);
@@ -321,6 +209,7 @@ public final class ShopUi {
                 } else {
                     sellerName = EconomyCraft.getManager(viewer.level().getServer()).getBestName(l.seller);
                 }
+
                 long tax = Math.round(l.price * EconomyConfig.get().taxRate);
                 display.set(net.minecraft.core.component.DataComponents.LORE, new net.minecraft.world.item.component.ItemLore(List.of(
                         createPriceLore(l.price, tax),
@@ -457,6 +346,7 @@ public final class ShopUi {
                         if (bal < total) {
                             sp.sendSystemMessage(Component.literal("Недостаточно средств").withStyle(ChatFormatting.RED));
                         } else {
+                            eco.setShopLimit(current.seller, eco.getSellShopLimit(current.seller) + 1);
                             eco.removeMoney(player.getUUID(), total);
                             eco.addMoney(current.seller, cost);
                             ShopListing sold = shop.removeListing(current.id);
@@ -478,7 +368,7 @@ public final class ShopUi {
                             if (!player.getInventory().add(stack)) {
                                 shop.addDelivery(player.getUUID(), stack);
 
-                                ClickEvent ev = ChatCompat.runCommandEvent("/eco orders claim");
+                                ClickEvent ev = ChatCompat.runCommandEvent("/orders claim");
                                 if (ev != null) {
                                     Component msg = Component.literal("Предмет сохранён: ")
                                             .withStyle(ChatFormatting.YELLOW)
@@ -567,15 +457,17 @@ public final class ShopUi {
 
         @Override
         public void clicked(int slot, int dragType, ClickType type, Player player) {
+            EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
             if (type == ClickType.PICKUP) {
                 if (slot == 2) {
+                    eco.setShopLimit(player.getUUID(), eco.getSellShopLimit(player.getUUID()) + 1);
                     ShopListing removed = shop.removeListing(listing.id);
                     if (removed != null) {
                         ItemStack stack = removed.item.copy();
                         if (!player.getInventory().add(stack)) {
                             shop.addDelivery(player.getUUID(), stack);
 
-                            ClickEvent ev = ChatCompat.runCommandEvent("/eco orders claim");
+                            ClickEvent ev = ChatCompat.runCommandEvent("/orders claim");
                             if (ev != null) {
                                 Component msg = Component.literal("Предмет сохранён: ")
                                         .withStyle(ChatFormatting.YELLOW)
@@ -587,7 +479,7 @@ public final class ShopUi {
                                         (ServerPlayer) player,
                                         "Предмет сохранён: ",
                                         "[Забрать]",
-                                        "/eco orders claim"
+                                        "/orders claim"
                                 );
                             }
                         } else {

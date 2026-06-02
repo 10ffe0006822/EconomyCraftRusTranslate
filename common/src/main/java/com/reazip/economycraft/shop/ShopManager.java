@@ -64,6 +64,16 @@ public class ShopManager {
         return list;
     }
 
+    public int getIntPlayerListings(UUID playerID) {
+        values = new ArrayList<>(listings.values());
+        list = new ArrayList<>();
+        for (int i = 0; i < values.size(); i++) {
+            ShopListing l = values.get(i);
+            if (l.seller!= null && l.seller.equals(playerID)) {list.add(l);}
+        }
+        return list.size();
+    }
+
     /** Возвращает объявление по ID. */
     public ShopListing getListing(int id) {
         return listings.get(id);

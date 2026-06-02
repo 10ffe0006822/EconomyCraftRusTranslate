@@ -605,7 +605,7 @@ public final class ServerShopUi {
         }
 
         private void sendStoredMessage(ServerPlayer player) {
-            ClickEvent ev = ChatCompat.runCommandEvent("/eco orders claim");
+            ClickEvent ev = ChatCompat.runCommandEvent("/orders claim");
             if (ev != null) {
                 player.sendSystemMessage(STORED_MSG.copy()
                         .append(Component.literal("[Забрать]")
