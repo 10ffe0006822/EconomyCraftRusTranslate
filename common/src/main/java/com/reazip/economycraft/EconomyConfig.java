@@ -14,25 +14,27 @@ import java.util.Map;
 
 public class EconomyConfig {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final String DEFAULT_RESOURCE_PATH = "/assets/economycraft/config.json"; // Путь к встроенному файлу конфига по умолчанию
+    private static final String DEFAULT_RESOURCE_PATH = "/assets/economycraft/config.json";
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
             .create();
 
-    public long startingBalance;          // Начальный баланс
-    public long dailyAmount;              // Ежедневная сумма
-    public long dailySellLimit;           // Дневной лимит продажи
-    public double taxRate;                // Ставка налога
+    public long startingBalance;
+    public long dailyAmount;
+    public long dailySellLimit;
+    public double taxRate;
     @SerializedName("pvp_balance_loss_percentage")
-    public double pvpBalanceLossPercentage; // Процент потери баланса при PvP
+    public double pvpBalanceLossPercentage;
     @SerializedName("standalone_commands")
-    public boolean standaloneCommands;      // Использовать отдельные команды
+    public boolean standaloneCommands;
     @SerializedName("standalone_admin_commands")
-    public boolean standaloneAdminCommands; // Использовать отдельные админ-команды
+    public boolean standaloneAdminCommands;
     @SerializedName("scoreboard_enabled")
-    public boolean scoreboardEnabled;       // Включить скорборд
+    public boolean scoreboardEnabled;
     @SerializedName("server_shop_enabled")
-    public boolean serverShopEnabled = true; // Включить серверный магазин
+    public boolean serverShopEnabled = true;
+    @SerializedName("default_shop_limit")
+    public int defaultShopLimit = 15;
 
     private static EconomyConfig INSTANCE = new EconomyConfig();
     private static Path file;
@@ -47,9 +49,9 @@ public class EconomyConfig {
         file = dir.resolve("config.json");
 
         if (Files.notExists(file)) {
-            copyDefaultFromJarOrThrow(); // Копируем встроенный файл, если пользовательского нет
+            copyDefaultFromJarOrThrow();
         } else {
-            mergeNewDefaultsFromBundledDefault(); // Добавляем отсутствующие поля из встроенного файла
+            mergeNewDefaultsFromBundledDefault();
         }
 
         try {
@@ -81,10 +83,6 @@ public class EconomyConfig {
         }
     }
 
-    /**
-     * Копирует встроенный файл config.json из ресурсов JAR, если он там есть.
-     * Если файла в ресурсах нет — выбрасывает исключение.
-     */
     private static void copyDefaultFromJarOrThrow() {
         try (InputStream in = EconomyConfig.class.getResourceAsStream(DEFAULT_RESOURCE_PATH)) {
             if (in == null) {
@@ -100,13 +98,8 @@ public class EconomyConfig {
         }
     }
 
-    /**
-     * Сливает текущий пользовательский config.json со встроенным файлом по умолчанию,
-     * добавляя в пользовательский файл все недостающие поля из встроенного.
-     * Если встроенного файла нет — слияние пропускается.
-     */
     private static void mergeNewDefaultsFromBundledDefault() {
-        JsonObject defaults = readBundledDefaultJson(); // Встроенный эталон
+        JsonObject defaults = readBundledDefaultJson();
         if (defaults == null) {
             LOGGER.warn("[EconomyCraft] Встроенные настройки по умолчанию не найдены; пропуск слияния конфигов.");
             return;
@@ -125,7 +118,7 @@ public class EconomyConfig {
             throw new IllegalStateException("[EconomyCraft] Не удалось прочитать/разобрать пользовательский config.json для слияния по пути " + file, ex);
         }
 
-        int[] added = new int[]{0}; // счётчик добавленных полей
+        int[] added = new int[]{0};
         addMissingRecursive(userRoot, defaults, added);
 
         if (added[0] > 0) {
@@ -137,30 +130,18 @@ public class EconomyConfig {
         }
     }
 
-    /**
-     * Читает встроенный config.json из ресурсов JAR и возвращает его как JsonObject.
-     * Возвращает null, если файл не найден или его содержимое не является объектом.
-     */
     private static JsonObject readBundledDefaultJson() {
         try (InputStream in = EconomyConfig.class.getResourceAsStream(DEFAULT_RESOURCE_PATH)) {
             if (in == null) return null;
-
             String json = new String(in.readAllBytes(), StandardCharsets.UTF_8);
             JsonElement parsed = JsonParser.parseString(json);
             if (!parsed.isJsonObject()) return null;
-
             return parsed.getAsJsonObject();
         } catch (Exception ex) {
             throw new IllegalStateException("[EconomyCraft] Не удалось прочитать встроенный config.json по умолчанию из " + DEFAULT_RESOURCE_PATH, ex);
         }
     }
 
-    /**
-     * Рекурсивно добавляет в target все поля из defaults, которые отсутствуют в target.
-     * @param target  пользовательский объект JSON (будет изменён)
-     * @param defaults эталонный объект JSON из встроенного файла
-     * @param added   счётчик добавленных полей (изменяемый массив для передачи по ссылке)
-     */
     private static void addMissingRecursive(JsonObject target, JsonObject defaults, int[] added) {
         for (Map.Entry<String, JsonElement> e : defaults.entrySet()) {
             String key = e.getKey();
