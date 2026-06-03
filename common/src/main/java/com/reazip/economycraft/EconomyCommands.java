@@ -782,23 +782,23 @@ public final class EconomyCommands {
 
     private static int addShopLimit(IdentityCompat.PlayerRef player, int number, CommandSourceStack source) {
         EconomyManager manager = EconomyCraft.getManager(source.getServer());
-        int shoplimit = manager.getShopLimit(player.id());
+        int shoplimit = manager.getSellShopLimit(player.id());
         manager.setShopLimit(player.id(), shoplimit + number);
-        source.sendSuccess(() -> Component.literal("Уменьшен лимит магазина для игрока " + player.name() + ": " + shoplimit).withStyle(ChatFormatting.GREEN), false);
+        source.sendSuccess(() -> Component.literal("Уменьшен лимит магазина для игрока " + player.name() + ": " + manager.getShopLimit(player.id())).withStyle(ChatFormatting.GREEN), false);
         return 1;
     }
 
     private static int removeShopLimit(IdentityCompat.PlayerRef player, int number, CommandSourceStack source) {
         EconomyManager manager = EconomyCraft.getManager(source.getServer());
-        int shoplimit = manager.getShopLimit(player.id());
+        int shoplimit = manager.getSellShopLimit(player.id());
         manager.setShopLimit(player.id(), shoplimit - number);
-        source.sendSuccess(() -> Component.literal("Уменьшен лимит магазина для игрока " + player.name() + ": " + shoplimit).withStyle(ChatFormatting.GREEN), false);
+        source.sendSuccess(() -> Component.literal("Уменьшен лимит магазина для игрока " + player.name() + ": " + manager.getShopLimit(player.id())).withStyle(ChatFormatting.GREEN), false);
         return 1;
     }
 
     private static int getShopLimit(IdentityCompat.PlayerRef player, CommandSourceStack source) {
         EconomyManager manager = EconomyCraft.getManager(source.getServer());
-        int shoplimit = manager.getSellShopLimit(player.id());
+        int shoplimit = manager.getShopLimit(player.id());
         source.sendSuccess(() -> Component.literal("Лимит лотов магазина для игрока " + player.name() + ": " + shoplimit).withStyle(ChatFormatting.GREEN), false);
         return 1;
     }

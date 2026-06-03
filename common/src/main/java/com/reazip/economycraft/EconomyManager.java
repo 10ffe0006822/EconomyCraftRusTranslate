@@ -107,15 +107,6 @@ public class EconomyManager {
         saveShopLimits();
     }
 
-    public int getDefaultShopLimit() {
-        return EconomyConfig.get().defaultShopLimit;
-    }
-
-    public void resetShopLimit(UUID playerId) {
-        shopLimits.remove(playerId);
-        saveShopLimits();
-    }
-
     // =====================================================================
     // === Работа с именами игроков ========================================
     // =====================================================================
