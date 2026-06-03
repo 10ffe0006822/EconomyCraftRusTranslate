@@ -407,7 +407,7 @@ public final class OrdersUi {
 
                             // Уведомляем заказчика
                             if (requesterPlayer != null) {
-                                ClickEvent ev = ChatCompat.runCommandEvent("/eco orders claim");
+                                ClickEvent ev = ChatCompat.runCommandEvent("/orders claim");
                                 if (ev != null) {
                                     Component msg = Component.literal("Ваш заказ на " + current.amount + "x " +
                                                     current.item.getHoverName().getString() +
@@ -423,7 +423,7 @@ public final class OrdersUi {
                                             requesterPlayer,
                                             "Ваш заказ на " + current.amount + "x " + current.item.getHoverName().getString() + " выполнен: ",
                                             "[Получить]",
-                                            "/eco orders claim"
+                                            "/orders claim"
                                     );
                                 }
                             }

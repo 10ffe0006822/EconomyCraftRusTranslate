@@ -43,7 +43,7 @@ public final class EconomyCraft {
 
         // Проверка наличия неполученных заказов
         if (eco.getOrders().hasDeliveries(player.getUUID()) || eco.getShop().hasDeliveries(player.getUUID())) {
-            ClickEvent ev = ChatCompat.runCommandEvent("/eco orders claim"); // Команда для получения заказов
+            ClickEvent ev = ChatCompat.runCommandEvent("/orders claim"); // Команда для получения заказов
 
             if (ev != null) {
                 Component msg = Component.literal("У вас есть неполученные предметы: ")
@@ -56,7 +56,7 @@ public final class EconomyCraft {
                         player,
                         "У вас есть неполученные предметы: ",
                         "[Получить]",
-                        "/eco orders claim"
+                        "/orders claim"
                 );
             }
         }
