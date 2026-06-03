@@ -102,7 +102,6 @@ public class EconomyManager {
     }
 
     public void setShopLimit(UUID playerId, int limit) {
-        if (limit < 0) limit = 0;
         shopLimits.put(playerId, limit);
         saveShopLimits();
     }

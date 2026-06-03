@@ -685,7 +685,7 @@ public final class EconomyCommands {
                                         ctx.getSource().sendFailure(Component.literal("Укажите ровно одного игрока").withStyle(ChatFormatting.RED));
                                         return 0;
                                     }
-                                    return getShopLimit(refs.iterator().next(), ctx.getSource());
+                                    return getSellShopLimit(refs.iterator().next(), ctx.getSource());
                                 })));
     }
 
@@ -740,7 +740,7 @@ public final class EconomyCommands {
                 .requires(PermissionCompat.gamemaster())
                 .then(literal("add")
                         .then(argument("player", GameProfileArgument.gameProfile())
-                                .then(argument("limit", IntegerArgumentType.integer(0))
+                                .then(argument("integer", IntegerArgumentType.integer(0))
                                         .executes(ctx ->
                                         {
                                             var refs = IdentityCompat.getArgAsPlayerRefs(ctx, "player");
@@ -799,6 +799,13 @@ public final class EconomyCommands {
     private static int getShopLimit(IdentityCompat.PlayerRef player, CommandSourceStack source) {
         EconomyManager manager = EconomyCraft.getManager(source.getServer());
         int shoplimit = manager.getShopLimit(player.id());
+        source.sendSuccess(() -> Component.literal("Лимит лотов магазина для игрока " + player.name() + ": " + shoplimit).withStyle(ChatFormatting.GREEN), false);
+        return 1;
+    }
+
+    private static int getSellShopLimit(IdentityCompat.PlayerRef player, CommandSourceStack source) {
+        EconomyManager manager = EconomyCraft.getManager(source.getServer());
+        int shoplimit = manager.getSellShopLimit(player.id());
         source.sendSuccess(() -> Component.literal("Лимит лотов магазина для игрока " + player.name() + ": " + shoplimit).withStyle(ChatFormatting.GREEN), false);
         return 1;
     }
